@@ -41,6 +41,7 @@ async def chat(req: ChatRequest):
                     "chat_template_kwargs": {"thinking": True, "reasoning_effort": "medium"}
                 }
             )
+        
         assistant_message = response.choices[0].message
         reasoning = getattr(assistant_message, "reasoning", None) or getattr(assistant_message, "reasoning_content", None)
         content = assistant_message.content
@@ -55,6 +56,6 @@ async def chat(req: ChatRequest):
             "content": content
         }
     except Exception as e:
-        # If the API fails, remove the last user prompt so the history doesn't get out of sync
+        # if API fails, remove the last user prompt so the history doesn't get out of sync
         history.pop()
         raise HTTPException(status_code=500, detail=str(e))
