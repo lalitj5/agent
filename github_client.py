@@ -17,5 +17,8 @@ def fetch_file(repo_full_name: str, file_path: str, branch: str = "main") -> tup
     repo = gh.get_repo(repo_full_name)
     contents = repo.get_contents(file_path, ref=branch)
     file_content = contents.decoded_content.decode("utf-8") # type: ignore[reportCallIssue]
+    if file_content is None:
+        raise ValueError()
+    print(file_content[:20])
     return file_content, contents.sha # type: ignore[reportCallIssue]
 

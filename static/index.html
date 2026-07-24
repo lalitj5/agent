@@ -19,13 +19,14 @@ Mini Coding Agent (BETA)
 
 <div id="chat"></div>
 
-<div class="optional-repo"></div>
+<div class="optional-repo">
+    <input type="text" id="repo" placeholder="owner/repo">
+    <input type="text" id="file_path" placeholder="path/to/file.py">
+</div>
 
 <div class="input-area">
     <textarea id="prompt" placeholder="Ask something..."></textarea>
     <button onclick="sendPrompt()">Send</button>
-    <input type="text" id="repo" placeholder="owner/repo"></input>
-    <input type="text" id="filePath" placeholder="path/to/file.py"></input>
 </div>
 
 </div>
@@ -52,7 +53,7 @@ async function sendPrompt(){
     const textarea = document.getElementById("prompt");
     const prompt = textarea.value.trim();
     const repo = document.getElementById("repo").value.trim();
-    const filePath = document.getElementById("filePath").value.trim();
+    const file_path = document.getElementById("file_path").value.trim();
 
 
     if(prompt==="") return;
@@ -77,7 +78,7 @@ async function sendPrompt(){
                 session_id: sessionId,
                 prompt: prompt,
                 repo: repo || null,
-                filePath: filePath || null
+                file_path: file_path || null
             })
 
         });

@@ -33,7 +33,7 @@ async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str |
             response = planner.chat.completions.create(
                 model="deepseek-ai/deepseek-v4-flash",
                 messages=history,
-                max_tokens=512,
+                max_tokens=1024,
                 temperature=0.7,
                 top_p=0.9,
                 extra_body={"chat_template_kwargs": {"thinking": True, "reasoning_effort": "medium"}}
@@ -55,15 +55,19 @@ async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str |
                 raise HTTPException(status_code=500, detail=f"Planner LLM API failed after {max_retries} attempts: {str(e)}")
     raise RuntimeError("call_planner exited retry loop without returning or raising")
 
-async def call_coder(plan: str) -> None | str:
+async def call_coder(plan: str, original_file: str) -> None | str:
     max_retries = 2
+    user_content = plan
+    if original_file:
+        user_content = f"Original file contents:\n```\n{original_file}\n```\n\nBlueprint:\n{plan}"
+
     for attempt in range(max_retries):
         try:
             response = coder.chat.completions.create(
                 model="z-ai/glm-5.2",
-                messages=[{"role": "user", "content": plan}],
+                messages=[{"role": "system", "content": coder_system_prompt}, {"role": "user", "content": user_content}],  # type: ignore[reportCallIssue]
                 temperature=0.3,
-                max_tokens=1024,
+                max_tokens=2048,
             )
             msg = response.choices[0].message
             content = msg.content
@@ -84,9 +88,12 @@ async def chat(req: ChatRequest):
         sessions[req.session_id] = [{"role": "system", "content": planner_system_prompt}]
     history = sessions[req.session_id]
 
+    file_content = None
     if req.repo and req.file_path:
         file_content, file_sha = fetch_file(req.repo, req.file_path)
-        augment_prompt = f"The content of relevant file is {file_content}"
+        augment_prompt = f"""
+        Existing file contents ({req.file_path}):\n```\n{file_content}\n```\n\nUser request: {req.prompt}
+        """
     else:
         augment_prompt = req.prompt
     history.append({"role": "user", "content": augment_prompt})
@@ -95,8 +102,7 @@ async def chat(req: ChatRequest):
 
     history.append({"role": "assistant", "content": plan})
 
-    history.append({"role": "system", "content": coder_system_prompt})
-    output_code = await call_coder(plan)
+    output_code = await call_coder(plan, file_content)  # type: ignore[reportCallIssue]
     history.append({"role": "assistant", "content": output_code})
 
     return {"content": output_code}
