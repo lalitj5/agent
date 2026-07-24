@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from llm import planner
+from llm import planner, coder
+from openai.types.chat import ChatCompletionMessageParam
 import asyncio
 
 app = FastAPI()
@@ -10,7 +11,8 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # in memory db
-sessions = {}
+
+sessions: dict[str, list[ChatCompletionMessageParam]] = {}
 # system_prompt for deepseek
 planner_system_prompt = """
 You are an expert Software Architect and Technical Planner. Your sole purpose is to analyze user requests and draft a rigorous, unambiguous implementation blueprint. 
@@ -55,6 +57,30 @@ List critical edge cases, security considerations, and error handling rules the 
 </constraint>
 """
 
+coder_system_prompt = """
+You are an expert Software Engineer. Your sole purpose is to implement the exact blueprint provided to you by a Technical Planner. You do not redesign, second-guess, or deviate from the plan — you execute it precisely.
+
+### CRITICAL RULES:
+1. The user's message will contain a blueprint with <architecture>, <implementation_plan>, and <edge_cases_and_validation> sections. Treat this as your spec — implement it faithfully, in the order given.
+2. DO NOT add features, files, or dependencies not mentioned in the blueprint. If the blueprint is ambiguous or missing something you need to proceed, make the smallest reasonable assumption and note it in a brief comment — do not silently invent scope.
+3. Implement every edge case and validation rule listed in <edge_cases_and_validation> — these are not optional.
+4. Follow the file structure exactly as specified in <architecture>. If multiple files are required, generate all of them.
+5. Write complete, runnable code — no placeholders, no "# TODO: implement this part," no omitted imports.
+6. DO NOT explain your reasoning, restate the plan, or add conversational commentary. Output only code.
+
+### OUTPUT FORMAT:
+For each file specified in the blueprint's file structure, output it as:
+
+```path/to/filename.ext
+<complete file contents>
+```
+
+If the blueprint specifies only one file, output only one code block. If it specifies several, output them in the same order as the file structure — typically dependencies/models before the code that consumes them.
+
+### CONSTRAINT:
+- Do not include explanatory prose before, between, or after code blocks. The output must be code blocks only, so it can be parsed programmatically.
+"""
+
 class ChatRequest(BaseModel):
     session_id: str
     prompt: str
@@ -63,6 +89,56 @@ class ChatRequest(BaseModel):
 @app.get("/")
 def home():
     return FileResponse("static/index.html")
+
+async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str | None, str]:
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            response = planner.chat.completions.create(
+                model="deepseek-ai/deepseek-v4-flash",
+                messages=history,
+                max_tokens=512,
+                temperature=0.7,
+                top_p=0.9,
+                extra_body={"chat_template_kwargs": {"thinking": True, "reasoning_effort": "medium"}}
+            )
+            msg = response.choices[0].message
+            reasoning = getattr(msg, "reasoning", None) or getattr(msg, "reasoning_content", None)
+            content = msg.content
+
+            if content is None:
+                raise ValueError("Planner returned empty content")
+            
+            return reasoning, content
+        except Exception as e:
+            print(f"Planner attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1)
+            else:
+                history.pop()
+                raise HTTPException(status_code=500, detail=f"Planner LLM API failed after {max_retries} attempts: {str(e)}")
+    raise RuntimeError("call_planner exited retry loop without returning or raising")
+
+async def call_coder(plan: str) -> None | str:
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            response = coder.chat.completions.create(
+                model="z-ai/glm-5.2",
+                messages=[{"role": "user", "content": plan}],
+                temperature=0.3,
+                max_tokens=1024,
+            )
+            msg = response.choices[0].message
+            content = msg.content
+            return content
+        except Exception as e:
+            print(f"Planner attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1)
+            else:
+                raise HTTPException(status_code=500, detail=f"Coder LLM API failed after {max_retries} attempts: {str(e)}")
+
 
 
 @app.post("/chat")
@@ -73,33 +149,11 @@ async def chat(req: ChatRequest):
     history = sessions[req.session_id]
     history.append({"role": "user", "content": req.prompt})
 
-    max_retries = 2
-    for attempt in range(max_retries):
-        try:
-            response = planner.chat.completions.create(
-                model="deepseek-ai/deepseek-v4-flash",
-                messages=history,
-                max_tokens=4096,
-                temperature=0.7,
-                top_p=0.9, 
-                extra_body={
-                        "chat_template_kwargs": {"thinking": True, "reasoning_effort": "medium"}
-                    }
-                )
-            
-            assistant_message = response.choices[0].message
-            reasoning = getattr(assistant_message, "reasoning", None) or getattr(assistant_message, "reasoning_content", None)
-            content = assistant_message.content
+    reasoning, plan = await call_planner(history)
 
-            history.append({"role": "assistant", "content": content})
+    history.append({"role": "assistant", "content": plan})
+    
+    output_code = await call_coder(plan)
+    history.append({"role": "assistant", "content": output_code})
 
-            return {"reasoning": reasoning, "content": content}
-        except Exception as e:
-            # if API fails, remove the last user prompt so the history doesn't get out of sync
-            print(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1) # Wait 1 second before retrying
-            else:
-                # Out of retries, clean up history and raise error
-                history.pop()
-                raise HTTPException(status_code=500, detail=f"LLM API failed after {max_retries} attempts: {str(e)}")
+    return {"content": output_code}

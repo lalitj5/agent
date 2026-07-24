@@ -16,7 +16,7 @@ planner = OpenAI(
 )
 
 messages: list[ChatCompletionMessageParam] =[{"role":"user","content":""}]
-"""
+
 #========================
 # glm 5.2
 #========================
@@ -49,7 +49,7 @@ for chunk in code_completion:
   delta = chunk.choices[0].delta
   if getattr(delta, "content", None) is not None:
     print(delta.content, end="")
-
+"""
 #========================
 # nemotron
 #========================
