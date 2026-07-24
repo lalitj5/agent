@@ -6,6 +6,8 @@
 
 <title>Mini Coding Agent</title>
 <link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
 
 </head>
 
@@ -36,11 +38,16 @@ Mini Coding Agent (BETA)
 const chat = document.getElementById("chat");
 const sessionId = "session_" + Math.random().toString(36).substring(2, 9);
 
-function addMessage(text, cls){
+function addMessage(text, cls, isBot = false){
 
     const div = document.createElement("div");
     div.className = "message " + cls;
-    div.textContent = text;
+
+    if (isBot && typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+        div.innerHTML = DOMPurify.sanitize(marked.parse(text));
+    } else {
+        div.textContent = text;
+    }
 
     chat.appendChild(div);
     chat.scrollTop = chat.scrollHeight;
@@ -62,7 +69,7 @@ async function sendPrompt(){
 
     textarea.value="";
 
-    const loading = addMessage("Thinking...","bot");
+    const loading = addMessage("Thinking...","bot",true);
 
     try{
 
@@ -85,7 +92,11 @@ async function sendPrompt(){
 
         const data = await response.json();
 
-        loading.textContent = data.content;
+        if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+            loading.innerHTML = DOMPurify.sanitize(marked.parse(data.content));
+        } else {
+            loading.textContent = data.content;
+        }
 
     }
 
