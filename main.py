@@ -2,88 +2,24 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from llm import planner, coder
 from openai.types.chat import ChatCompletionMessageParam
+from llm import planner, coder, planner_system_prompt, coder_system_prompt
+from github_client import fetch_file
 import asyncio
 
 app = FastAPI()
-
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # in memory db
-
 sessions: dict[str, list[ChatCompletionMessageParam]] = {}
-# system_prompt for deepseek
-planner_system_prompt = """
-You are an expert Software Architect and Technical Planner. Your sole purpose is to analyze user requests and draft a rigorous, unambiguous implementation blueprint. 
 
-This blueprint will be consumed by a specialized code-generation model. Your output must serve as a perfect "instruction manual" for that model.
 
-### CRITICAL RULES:
-1. DO NOT WRITE THE APPLICATION CODE. Write ONLY the plan, structural layout, and specifications.
-2. Ensure every step is logical, chronological, and leaves zero ambiguity for the coding model.
-3. Think through the architecture step-by-step before finalizing your plan.
-
-You must structure your response using the following XML format:
-
-<thinking>
-Analyze the user's request:
-- Core features and requirements.
-- Technical constraints and potential bottlenecks.
-- Necessary dependencies, libraries, or APIs.
-- Edge cases that the coding model must handle (e.g., error states, empty inputs).
-</thinking>
-
-<architecture>
-Define the system layout:
-- Technology Stack: [Language, Frameworks, Key Libraries]
-- File Structure: A visual directory tree of all files to be created/modified.
-- Data Flow / API Design: Briefly explain how components interact.
-</architecture>
-
-<implementation_plan>
-Provide a step-by-step, chronological blueprint for the coding model:
-1. [Step 1 Title]: Clear, actionable instructions on what to write and where. Mention imports, functions to define, and specific behaviors.
-2. [Step 2 Title]: ...
-3. [Step 3 Title]: ...
-</implementation_plan>
-
-<edge_cases_and_validation>
-List critical edge cases, security considerations, and error handling rules the coding model must implement to avoid bugs (e.g., handling 404/500 errors, rate limits, invalid inputs).
-</edge_cases_and_validation>
-
-<constraint>
-- Do not write code by yourself to maximize token efficiency.
-</constraint>
-"""
-
-coder_system_prompt = """
-You are an expert Software Engineer. Your sole purpose is to implement the exact blueprint provided to you by a Technical Planner. You do not redesign, second-guess, or deviate from the plan — you execute it precisely.
-
-### CRITICAL RULES:
-1. The user's message will contain a blueprint with <architecture>, <implementation_plan>, and <edge_cases_and_validation> sections. Treat this as your spec — implement it faithfully, in the order given.
-2. DO NOT add features, files, or dependencies not mentioned in the blueprint. If the blueprint is ambiguous or missing something you need to proceed, make the smallest reasonable assumption and note it in a brief comment — do not silently invent scope.
-3. Implement every edge case and validation rule listed in <edge_cases_and_validation> — these are not optional.
-4. Follow the file structure exactly as specified in <architecture>. If multiple files are required, generate all of them.
-5. Write complete, runnable code — no placeholders, no "# TODO: implement this part," no omitted imports.
-6. DO NOT explain your reasoning, restate the plan, or add conversational commentary. Output only code.
-
-### OUTPUT FORMAT:
-For each file specified in the blueprint's file structure, output it as:
-
-```path/to/filename.ext
-<complete file contents>
-```
-
-If the blueprint specifies only one file, output only one code block. If it specifies several, output them in the same order as the file structure — typically dependencies/models before the code that consumes them.
-
-### CONSTRAINT:
-- Do not include explanatory prose before, between, or after code blocks. The output must be code blocks only, so it can be parsed programmatically.
-"""
 
 class ChatRequest(BaseModel):
     session_id: str
     prompt: str
+    repo: str | None = None       # "owner/repo"
+    file_path: str | None = None  # "src/main.py"
 
 
 @app.get("/")
@@ -147,12 +83,19 @@ async def chat(req: ChatRequest):
         # initialize chat history for each session
         sessions[req.session_id] = [{"role": "system", "content": planner_system_prompt}]
     history = sessions[req.session_id]
-    history.append({"role": "user", "content": req.prompt})
+
+    if req.repo and req.file_path:
+        file_content, file_sha = fetch_file(req.repo, req.file_path)
+        augment_prompt = f"The content of relevant file is {file_content}"
+    else:
+        augment_prompt = req.prompt
+    history.append({"role": "user", "content": augment_prompt})
 
     reasoning, plan = await call_planner(history)
 
     history.append({"role": "assistant", "content": plan})
-    
+
+    history.append({"role": "system", "content": coder_system_prompt})
     output_code = await call_coder(plan)
     history.append({"role": "assistant", "content": output_code})
 
