@@ -4,7 +4,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from openai.types.chat import ChatCompletionMessageParam
 from llm import planner, coder, planner_system_prompt, coder_system_prompt
-from github_client import fetch_file
+from github_client import fetch_file, create_pr_from_output
 import asyncio
 
 app = FastAPI()
@@ -89,6 +89,7 @@ async def chat(req: ChatRequest):
     history = sessions[req.session_id]
 
     file_content = None
+    file_sha = ""
     if req.repo and req.file_path:
         file_content, file_sha = fetch_file(req.repo, req.file_path)
         augment_prompt = f"""
@@ -105,4 +106,18 @@ async def chat(req: ChatRequest):
     output_code = await call_coder(plan, file_content)  # type: ignore[reportCallIssue]
     history.append({"role": "assistant", "content": output_code})
 
+    if req.repo and req.file_path and output_code:
+        pr_url = create_pr_from_output(req.repo, req.file_path, file_sha, output_code, plan, req.prompt)
+        if pr_url is None:
+            raise NotImplementedError()
+        return {"content": output_code, "pr_url": pr_url}
+
     return {"content": output_code}
+
+
+
+
+"""
+NEED TO IMPLEMENT MULTIPLE FILE SHARING AND MULTIPLE FILE changes for PR
+
+"""

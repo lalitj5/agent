@@ -92,10 +92,16 @@ async function sendPrompt(){
 
         const data = await response.json();
 
+        let displayText = data.content;
+
+        if (data.pr_url) {
+            displayText += `\n\n---\n**PR created:** [${data.pr_url}](${data.pr_url})`;
+        }
+
         if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
-            loading.innerHTML = DOMPurify.sanitize(marked.parse(data.content));
+            loading.innerHTML = DOMPurify.sanitize(marked.parse(displayText));
         } else {
-            loading.textContent = data.content;
+            loading.textContent = displayText;
         }
 
     }
