@@ -32,7 +32,7 @@ async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str |
             response = planner.chat.completions.create(
                 model="deepseek-ai/deepseek-v4-flash",
                 messages=history,
-                max_tokens=1024,
+                max_tokens=2000,
                 temperature=0.7,
                 top_p=0.9,
                 extra_body={"chat_template_kwargs": {"thinking": True, "reasoning_effort": "medium"}}
@@ -71,7 +71,7 @@ async def call_coder_stream(plan: str, original_files: str) -> AsyncGenerator[st
                 model="z-ai/glm-5.2",
                 messages=[{"role": "system", "content": coder_system_prompt}, {"role": "user", "content": user_content}],  # type: ignore[reportCallIssue]
                 temperature=0.3,
-                max_tokens=2048,
+                max_tokens=6000,
                 stream=True
             )
             async for chunk in response:

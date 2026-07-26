@@ -27,7 +27,7 @@ def fetch_file(repo_full_name: str, file_path: str, branch: str = "main") -> tup
 def create_branch(repo_full_name: str, base_branch: str = "main") -> str:
     repo = gh.get_repo(repo_full_name)
     base_ref = repo.get_git_ref(f"heads/{base_branch}")
-    new_branch_name = f"agent/{int(time.time())}"
+    new_branch_name = f"agent/{time.time()}"
     repo.create_git_ref(ref=f"refs/heads/{new_branch_name}", sha=base_ref.object.sha)
     return new_branch_name
 
