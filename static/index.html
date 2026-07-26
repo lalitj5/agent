@@ -13,24 +13,28 @@
 
 <body>
 
-<div class="container">
+<div id="app">
+    <div id="bg-pattern"></div>
+    <div class="container">
 
-<header>
-Mini Coding Agent (BETA)
-</header>
+        <header>
+            <span class="header-icon">🤖</span>
+            Mini Coding Agent (BETA)
+        </header>
 
-<div id="chat"></div>
+        <div id="chat"></div>
 
-<div class="optional-repo">
-    <input type="text" id="repo" placeholder="owner/repo">
-    <input type="text" id="file_paths" placeholder="path/to/file.py">
-</div>
+        <div class="optional-repo">
+            <input type="text" id="repo" placeholder="owner/repo" aria-label="GitHub Repository">
+            <input type="text" id="file_paths" placeholder="path/to/file.py" aria-label="File Paths">
+        </div>
 
-<div class="input-area">
-    <textarea id="prompt" placeholder="Ask something..."></textarea>
-    <button id="sendBtn" onclick="sendPrompt()">Send</button>
-</div>
+        <div class="input-area">
+            <textarea id="prompt" placeholder="Ask something..." aria-label="Prompt Input"></textarea>
+            <button id="sendBtn" onclick="sendPrompt()" aria-label="Send Message">Send</button>
+        </div>
 
+    </div>
 </div>
 
 <script>
