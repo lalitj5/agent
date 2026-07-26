@@ -1,6 +1,6 @@
 # A Broke Man's Claude Code
 
-As a college student, money doesn't come by often! Using NVIDIA's developer pack, I am attempting to simulate the Mixture of Experts (MoE) architecture for coding agents and architected a multi-agent coding harness orchestrating DeepSeek V4 Flash as a planning agent and GLM 5.2 as a code-generation agent over NVIDIA’s free-tier inference endpoints **(Saving me 20 dollars per month!)**.
+As a college student, claude code bills can ring up pretty fast! Using NVIDIA's developer pack, I am attempting to simulate the Mixture of Experts (MoE) architecture for coding agents and architected a multi-agent coding harness orchestrating DeepSeek V4 Flash as a planning agent and GLM 5.2 as a code-generation agent over NVIDIA’s free-tier inference endpoints **(Saving me 20 dollars per month!)**.
 
 ## Features:
 - Fetches files from your github repo automatically and augments with user prompt
