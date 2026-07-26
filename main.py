@@ -108,7 +108,7 @@ async def chat(req: ChatRequest):
 
         augment_prompt = ""
         for path, content in file_contents.items():
-            augment_prompt += f"Existing file contents ({path}):\n```\n{content}\n```\n\n"
+            augment_prompt += f"Existing file contents ({path}):\n===\n{content}\n===\n\n"
         augment_prompt += f"User request: {req.prompt}"
             
     else:

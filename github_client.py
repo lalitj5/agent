@@ -32,7 +32,6 @@ def create_branch(repo_full_name: str, base_branch: str = "main") -> str:
     return new_branch_name
 
 def parse_coder_output(output_code: str) -> dict[str, str]:
-    """Splits fenced code blocks like ```path/to/file.py\n<content>\n``` into {path: content}."""
     pattern = r"```([^\n`]+)\n(.*?)```"
     matches = re.findall(pattern, output_code, re.DOTALL)
     return {path.strip(): content.strip() for path, content in matches}
