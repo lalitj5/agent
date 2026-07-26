@@ -19,7 +19,7 @@ class ChatRequest(BaseModel):
     session_id: str
     prompt: str
     repo: str | None = None       # "owner/repo"
-    file_path: str | None = None  # "src/main.py"
+    file_paths: str | None = None  # "src/main.py"
 
 
 @app.get("/")
@@ -55,11 +55,16 @@ async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str |
                 raise HTTPException(status_code=500, detail=f"Planner LLM API failed after {max_retries} attempts: {str(e)}")
     raise RuntimeError("call_planner exited retry loop without returning or raising")
 
-async def call_coder(plan: str, original_file: str) -> None | str:
+async def call_coder(plan: str, original_files: str) -> None | str:
     max_retries = 2
     user_content = plan
-    if original_file:
-        user_content = f"Original file contents:\n```\n{original_file}\n```\n\nBlueprint:\n{plan}"
+    if original_files:
+        user_content = (
+            "=== ORIGINAL FILE CONTENTS (for reference, do not repeat verbatim) ===\n"
+            f"{original_files}\n"
+            "=== END ORIGINAL FILE CONTENTS ===\n\n"
+            f"Blueprint:\n{plan}"
+        )
 
     for attempt in range(max_retries):
         try:
@@ -88,28 +93,37 @@ async def chat(req: ChatRequest):
         sessions[req.session_id] = [{"role": "system", "content": planner_system_prompt}]
     history = sessions[req.session_id]
 
-    file_content = None
-    file_sha = ""
-    if req.repo and req.file_path:
-        file_content, file_sha = fetch_file(req.repo, req.file_path)
-        augment_prompt = f"""
-        Existing file contents ({req.file_path}):\n```\n{file_content}\n```\n\nUser request: {req.prompt}
-        """
+    file_contents: dict[str, str] = {}
+    file_shas: dict[str, str] = {}
+
+    if req.repo and req.file_paths:
+        file_paths = []
+        for path in req.file_paths.split(","):
+            file_paths.append(path.strip())
+
+        for path in file_paths:
+            content, sha = fetch_file(req.repo, path)
+            file_contents[path] = content
+            file_shas[path] = sha
+
+        augment_prompt = ""
+        for path, content in file_contents.items():
+            augment_prompt += f"Existing file contents ({path}):\n```\n{content}\n```\n\n"
+        augment_prompt += f"User request: {req.prompt}"
+            
     else:
         augment_prompt = req.prompt
     history.append({"role": "user", "content": augment_prompt})
 
     reasoning, plan = await call_planner(history)
-
     history.append({"role": "assistant", "content": plan})
 
-    output_code = await call_coder(plan, file_content)  # type: ignore[reportCallIssue]
+    combined_files = "\n\n".join(file_contents.values()) if file_contents else ""
+    output_code = await call_coder(plan, combined_files)
     history.append({"role": "assistant", "content": output_code})
 
-    if req.repo and req.file_path and output_code:
-        pr_url = create_pr_from_output(req.repo, req.file_path, file_sha, output_code, plan, req.prompt)
-        if pr_url is None:
-            raise NotImplementedError()
+    if req.repo and file_shas and output_code:
+        pr_url = create_pr_from_output(req.repo, output_code, file_shas, plan, req.prompt)
         return {"content": output_code, "pr_url": pr_url}
 
     return {"content": output_code}

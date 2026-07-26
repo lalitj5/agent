@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from github import Auth
 from github.Auth import Token
@@ -30,18 +31,24 @@ def create_branch(repo_full_name: str, base_branch: str = "main") -> str:
     repo.create_git_ref(ref=f"refs/heads/{new_branch_name}", sha=base_ref.object.sha)
     return new_branch_name
 
-def update_file(repo_full_name: str, file_path: str, new_content: str, file_sha: str, branch: str, commit_message: str):
-    if (file_sha == ""):
-        raise ValueError("File sha cannot be empty string")
-    
+def parse_coder_output(output_code: str) -> dict[str, str]:
+    """Splits fenced code blocks like ```path/to/file.py\n<content>\n``` into {path: content}."""
+    pattern = r"```([^\n`]+)\n(.*?)```"
+    matches = re.findall(pattern, output_code, re.DOTALL)
+    return {path.strip(): content.strip() for path, content in matches}
+
+def update_files(repo_full_name: str, file_updates: dict[str, str], file_shas: dict[str, str], branch: str, commit_message: str):
     repo = gh.get_repo(repo_full_name)
-    repo.update_file(
-        path=file_path,
-        message=commit_message,
-        content=new_content,
-        sha=file_sha, # the SHA from earlier fetch_file call
-        branch=branch
-    )
+    for path, content in file_updates.items():
+        if path not in file_shas:
+            raise ValueError(f"No known sha for {path}.")
+        repo.update_file(
+            path=path,
+            message=commit_message,
+            content=content,
+            sha=file_shas[path],
+            branch=branch,
+        )
 
 def open_pr(repo_full_name: str, branch: str, base_branch: str, title: str, body: str):
     repo = gh.get_repo(repo_full_name)
@@ -53,7 +60,12 @@ def open_pr(repo_full_name: str, branch: str, base_branch: str, title: str, body
     )
     return pr.html_url
 
-def create_pr_from_output(repo, file_path, file_sha, output_code, plan, prompt) -> str:
-    branch = create_branch(repo)
-    update_file(repo, file_path, output_code, file_sha, branch, commit_message=f"Agent: {prompt[:50]}")
-    return open_pr(repo, branch, "main", title=f"Agent: {prompt[:50]}", body=plan)
+
+def create_pr_from_output(repo_full_name: str, output_code: str, file_shas: dict[str, str], plan: str, prompt: str) -> str:
+    file_updates = parse_coder_output(output_code)
+    if not file_updates:
+        raise ValueError("Coder output contained no parseable file blocks")
+
+    branch = create_branch(repo_full_name)
+    update_files(repo_full_name, file_updates, file_shas, branch, commit_message=f"Agent: {prompt[:40]}")
+    return open_pr(repo_full_name, branch, "main", title=f"Agent: {prompt[:40]}", body=plan)

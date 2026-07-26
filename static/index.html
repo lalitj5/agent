@@ -23,7 +23,7 @@ Mini Coding Agent (BETA)
 
 <div class="optional-repo">
     <input type="text" id="repo" placeholder="owner/repo">
-    <input type="text" id="file_path" placeholder="path/to/file.py">
+    <input type="text" id="file_paths" placeholder="path/to/file.py">
 </div>
 
 <div class="input-area">
@@ -60,7 +60,7 @@ async function sendPrompt(){
     const textarea = document.getElementById("prompt");
     const prompt = textarea.value.trim();
     const repo = document.getElementById("repo").value.trim();
-    const file_path = document.getElementById("file_path").value.trim();
+    const file_paths = document.getElementById("file_paths").value.trim();
 
 
     if(prompt==="") return;
@@ -85,7 +85,7 @@ async function sendPrompt(){
                 session_id: sessionId,
                 prompt: prompt,
                 repo: repo || null,
-                file_path: file_path || null
+                file_paths: file_paths || null
             })
 
         });
