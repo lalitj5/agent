@@ -1,5 +1,6 @@
 # llm.py
 from openai import OpenAI
+from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 import os
 import sys
@@ -10,7 +11,7 @@ load_dotenv()
 #========================
 # deepseek v4 flash
 #========================
-planner = OpenAI(
+planner = AsyncOpenAI(
   base_url = "https://integrate.api.nvidia.com/v1",
   api_key = os.getenv('DEEPSEEK_API_KEY')
 )
