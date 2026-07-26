@@ -28,7 +28,7 @@ Mini Coding Agent (BETA)
 
 <div class="input-area">
     <textarea id="prompt" placeholder="Ask something..."></textarea>
-    <button onclick="sendPrompt()">Send</button>
+    <button id="sendBtn" onclick="sendPrompt()">Send</button>
 </div>
 
 </div>
@@ -37,9 +37,9 @@ Mini Coding Agent (BETA)
 
 const chat = document.getElementById("chat");
 const sessionId = "session_" + Math.random().toString(36).substring(2, 9);
+const sendBtn = document.getElementById("sendBtn");
 
 function addMessage(text, cls, isBot = false){
-
     const div = document.createElement("div");
     div.className = "message " + cls;
 
@@ -56,46 +56,86 @@ function addMessage(text, cls, isBot = false){
 }
 
 async function sendPrompt(){
-
     const textarea = document.getElementById("prompt");
     const prompt = textarea.value.trim();
     const repo = document.getElementById("repo").value.trim();
     const file_paths = document.getElementById("file_paths").value.trim();
 
-
     if(prompt==="") return;
 
     addMessage(prompt,"user");
-
     textarea.value="";
 
     const loading = addMessage("Thinking...","bot",true);
+    sendBtn.disabled = true;
 
-    try{
+    let fullContent = "";
+    let prUrl = null;
 
-        const response = await fetch("/chat",{
-
+    try {
+        const response = await fetch("/chat", {
             method:"POST",
-
             headers:{
                 "Content-Type":"application/json"
             },
-
             body:JSON.stringify({
                 session_id: sessionId,
                 prompt: prompt,
                 repo: repo || null,
                 file_paths: file_paths || null
             })
-
         });
 
-        const data = await response.json();
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-        let displayText = data.content;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            
+            let lines = buffer.split("\n\n");
+            buffer = lines.pop();
 
-        if (data.pr_url) {
-            displayText += `\n\n---\n**PR created:** [${data.pr_url}](${data.pr_url})`;
+            for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                
+                const dataStr = line.substring(6);
+                if (dataStr === "[DONE]") {
+                    continue;
+                }
+
+                try {
+                    const data = JSON.parse(dataStr);
+                    
+                    if (data.error) {
+                        loading.textContent = "Error: " + data.error;
+                        return;
+                    }
+                    
+                    if (data.chunk) {
+                        fullContent += data.chunk;
+                        loading.textContent = fullContent;
+                        chat.scrollTop = chat.scrollHeight;
+                    }
+                    
+                    if (data.content !== undefined) {
+                        fullContent = data.content;
+                        if (data.pr_url) {
+                            prUrl = data.pr_url;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Parse error:", e, dataStr);
+                }
+            }
+        }
+
+        let displayText = fullContent;
+        if (prUrl) {
+            displayText += `\n\n---\n**PR created:** [${prUrl}](${prUrl})`;
         }
 
         if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
@@ -104,13 +144,12 @@ async function sendPrompt(){
             loading.textContent = displayText;
         }
 
-    }
-
-    catch(err){
+    } catch(err){
         console.error("Fetch Error:", err);
         loading.textContent="Error contacting backend.";
+    } finally {
+        sendBtn.disabled = false;
     }
-
 }
 
 </script>
