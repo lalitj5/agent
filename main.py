@@ -29,7 +29,7 @@ async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str |
     max_retries = 2
     for attempt in range(max_retries):
         try:
-            response = planner.chat.completions.create(
+            response = await planner.chat.completions.create(
                 model="deepseek-ai/deepseek-v4-flash",
                 messages=history,
                 max_tokens=2000,

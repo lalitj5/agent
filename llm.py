@@ -67,7 +67,7 @@ _USE_COLOR = sys.stdout.isatty() and os.getenv("NO_COLOR") is None
 _REASONING_COLOR = "\033[90m" if _USE_COLOR else ""
 _RESET_COLOR = "\033[0m" if _USE_COLOR else ""
 
-coder = OpenAI(
+coder = AsyncOpenAI(
   base_url = "https://integrate.api.nvidia.com/v1",
   api_key = os.getenv('GLM_API_KEY')
 )
