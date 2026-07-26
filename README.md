@@ -13,3 +13,4 @@ As a college student, claude code bills can ring up pretty fast! Using NVIDIA's 
 - End-to-End auto verification for code (Start with having model write tests for code)
 - Once models are rate-limited, switch to next available model, automatically
 - Interact with multimodal inputs and tool calling
+- Agent brain for persistent context windows
