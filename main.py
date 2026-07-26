@@ -1,11 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from openai.types.chat import ChatCompletionMessageParam
 from llm import planner, coder, planner_system_prompt, coder_system_prompt
 from github_client import fetch_file, create_pr_from_output
 import asyncio
+import json
+from typing import AsyncGenerator
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -55,8 +57,7 @@ async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str |
                 raise HTTPException(status_code=500, detail=f"Planner LLM API failed after {max_retries} attempts: {str(e)}")
     raise RuntimeError("call_planner exited retry loop without returning or raising")
 
-async def call_coder(plan: str, original_files: str) -> None | str:
-    max_retries = 2
+async def call_coder(plan: str, original_files: str) -> AsyncGenerator[str, None]:
     user_content = plan
     if original_files:
         user_content = (
@@ -66,24 +67,24 @@ async def call_coder(plan: str, original_files: str) -> None | str:
             f"Blueprint:\n{plan}"
         )
 
-    for attempt in range(max_retries):
-        try:
-            response = coder.chat.completions.create(
-                model="z-ai/glm-5.2",
-                messages=[{"role": "system", "content": coder_system_prompt}, {"role": "user", "content": user_content}],  # type: ignore[reportCallIssue]
-                temperature=0.3,
-                max_tokens=2048,
-            )
-            msg = response.choices[0].message
-            content = msg.content
-            return content
-        except Exception as e:
-            print(f"Planner attempt {attempt + 1} failed: {e}")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1)
-            else:
-                raise HTTPException(status_code=500, detail=f"Coder LLM API failed after {max_retries} attempts: {str(e)}")
+    try:
+        response = coder.chat.completions.create(
+            model="z-ai/glm-5.2",
+            messages=[{"role": "system", "content": coder_system_prompt}, {"role": "user", "content": user_content}],  # type: ignore[reportCallIssue]
+            temperature=0.3,
+            max_tokens=2048,
+            stream=True,
+        )
+        for chunk in response:
+            delta = chunk.choices[0].delta
+            content = getattr(delta, "content", None)
+            if content is not None:
+                yield f"data: {json.dumps({'type': 'chunk', 'content': content})}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'content': f'Coder LLM API failed: {str(e)}'})}\n\n"
+        return
 
+    yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
 @app.post("/chat")
@@ -119,19 +120,29 @@ async def chat(req: ChatRequest):
     history.append({"role": "assistant", "content": plan})
 
     combined_files = "\n\n".join(file_contents.values()) if file_contents else ""
-    output_code = await call_coder(plan, combined_files)
-    history.append({"role": "assistant", "content": output_code})
 
-    if req.repo and file_shas and output_code:
-        pr_url = create_pr_from_output(req.repo, output_code, file_shas, plan, req.prompt)
-        return {"content": output_code, "pr_url": pr_url}
+    async def stream_coder():
+        full_output = ""
+        has_error = False
+        async for line in call_coder(plan, combined_files):
+            if line.startswith("data: "):
+                data_str = line[len("data: "):].strip()
+                try:
+                    data = json.loads(data_str)
+                    if data.get("type") == "chunk":
+                        full_output += data.get("content", "")
+                    elif data.get("type") == "error":
+                        has_error = True
+                except json.JSONDecodeError:
+                    pass
+            yield line
+        
+        if not has_error:
+            history.append({"role": "assistant", "content": full_output})
+            
+            if req.repo and file_shas and full_output:
+                pr_url = create_pr_from_output(req.repo, full_output, file_shas, plan, req.prompt)
+                if pr_url:
+                    yield f"data: {json.dumps({'type': 'pr_url', 'url': pr_url})}\n\n"
 
-    return {"content": output_code}
-
-
-
-
-"""
-NEED TO IMPLEMENT MULTIPLE FILE SHARING AND MULTIPLE FILE changes for PR
-
-"""
+    return StreamingResponse(stream_coder(), media_type="text/event-stream")
