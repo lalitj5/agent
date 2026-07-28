@@ -109,7 +109,11 @@ async function sendPrompt(){
 
                 try {
                     const data = JSON.parse(dataStr);
-                    
+
+                    if (data.status) {
+                        loading.textContent = data.status;
+                    }
+
                     if (data.error) {
                         loading.textContent = "Error: " + data.error;
                         return;

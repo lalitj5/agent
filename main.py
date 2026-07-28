@@ -112,8 +112,12 @@ async def chat(req: ChatRequest):
 
     async def event_stream():
         try:
+            yield f"data: {json.dumps({'status': 'Fetching files from GitHub...'})}\n\n"
+
+            yield f"data: {json.dumps({'status': 'Sending prompt to planner agent...'})}\n\n"
             reasoning, plan = await call_planner(history)
             history.append({"role": "assistant", "content": plan})
+            yield f"data: {json.dumps({'status': 'Plan created! Sending to coder agent...'})}\n\n"
 
             combined_files = "\n\n".join(file_contents.values()) if file_contents else ""
             
@@ -126,6 +130,7 @@ async def chat(req: ChatRequest):
 
             pr_url = None
             if req.repo and file_shas and full_content:
+                yield f"data: {json.dumps({'status': 'Opening pull request...'})}\n\n"
                 pr_url = create_pr_from_output(req.repo, full_content, file_shas, plan, req.prompt)
 
             yield f"data: {json.dumps({'content': full_content, 'pr_url': pr_url})}\n\n"
