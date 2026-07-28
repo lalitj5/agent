@@ -7,6 +7,7 @@ from llm import planner, coder, planner_system_prompt, coder_system_prompt
 from github_client import fetch_file, create_pr_from_output
 import asyncio
 import json
+import traceback
 from typing import AsyncGenerator
 
 app = FastAPI()
@@ -26,6 +27,7 @@ def home():
     return FileResponse("static/index.html")
 
 async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str | None, str]:
+    print(f"[LOG] Calling planner...")
     max_retries = 2
     for attempt in range(max_retries):
         try:
@@ -44,9 +46,11 @@ async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str |
             if content is None:
                 raise ValueError("Planner returned empty content")
             
+            print(f"[LOG] Planner completed. Reasoning length: {len(reasoning) if reasoning else 0}, Plan length: {len(content)}")
             return reasoning, content
         except Exception as e:
-            print(f"Planner attempt {attempt + 1} failed: {e}")
+            print(f"[ERROR] Planner attempt {attempt + 1} failed: {e}")
+            traceback.print_exc()
             if attempt < max_retries - 1:
                 await asyncio.sleep(1)
             else:
@@ -55,6 +59,7 @@ async def call_planner(history: list[ChatCompletionMessageParam]) -> tuple[str |
     raise RuntimeError("call_planner exited retry loop without returning or raising")
 
 async def call_coder_stream(plan: str, original_files: str) -> AsyncGenerator[str, None]:
+    print(f"[LOG] Calling coder...")
     max_retries = 2
     user_content = plan
     if original_files:
@@ -77,9 +82,11 @@ async def call_coder_stream(plan: str, original_files: str) -> AsyncGenerator[st
             async for chunk in response:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
+            print(f"[LOG] Coder stream completed")
             return
         except Exception as e:
-            print(f"Coder stream attempt {attempt + 1} failed: {e}")
+            print(f"[ERROR] Coder attempt {attempt + 1} failed: {e}")
+            traceback.print_exc()
             if attempt < max_retries - 1:
                 await asyncio.sleep(1)
             else:
@@ -87,19 +94,33 @@ async def call_coder_stream(plan: str, original_files: str) -> AsyncGenerator[st
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
+    print(f"[LOG] Chat request received: session_id={req.session_id}, repo={req.repo}, file_paths={req.file_paths}")
+    
     if req.session_id not in sessions:
         sessions[req.session_id] = [{"role": "system", "content": planner_system_prompt}]
+        print(f"[LOG] Created new session: {req.session_id}")
     history = sessions[req.session_id]
 
     file_contents: dict[str, str] = {}
     file_shas: dict[str, str] = {}
 
     if req.repo and req.file_paths:
+        print(f"[LOG] Fetching files from GitHub: {req.repo} paths={req.file_paths}")
         file_paths = [path.strip() for path in req.file_paths.split(",")]
-        for path in file_paths:
-            content, sha = fetch_file(req.repo, path)
-            file_contents[path] = content
-            file_shas[path] = sha
+        try:
+            for path in file_paths:
+                content, sha = fetch_file(req.repo, path)
+                file_contents[path] = content
+                file_shas[path] = sha
+                print(f"[LOG] Fetched {path}: {len(content)} bytes")
+        except Exception as e:
+            print(f"[ERROR] Failed to fetch files from GitHub: {e}")
+            traceback.print_exc()
+            raise
+        print(f"[LOG] Fetched {len(file_contents)} files from GitHub")
+        
+        if not file_contents:
+            print(f"[WARN] No file contents fetched; coder will only receive plan")
 
         augment_prompt = ""
         for path, content in file_contents.items():
@@ -131,13 +152,17 @@ async def chat(req: ChatRequest):
             pr_url = None
             if req.repo and file_shas and full_content:
                 yield f"data: {json.dumps({'status': 'Opening pull request...'})}\n\n"
+                print(f"[LOG] Creating pull request for repo: {req.repo}")
                 pr_url = create_pr_from_output(req.repo, full_content, file_shas, plan, req.prompt)
+                print(f"[LOG] Pull request created: {pr_url}")
 
             yield f"data: {json.dumps({'content': full_content, 'pr_url': pr_url})}\n\n"
             yield "data: [DONE]\n\n"
 
         except Exception as e:
             error_msg = str(e.detail) if isinstance(e, HTTPException) else str(e)
+            print(f"[ERROR] Event stream error: {error_msg}")
+            traceback.print_exc()
             yield f"data: {json.dumps({'error': error_msg})}\n\n"
             yield "data: [DONE]\n\n"
 
