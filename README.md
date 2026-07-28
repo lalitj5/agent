@@ -13,4 +13,7 @@ As a college student, claude code bills can ring up pretty fast! Using NVIDIA's 
 - End-to-End auto verification for code (Start with having model write tests for code)
 - Once models are rate-limited, switch to next available model, automatically
 - Interact with multimodal inputs and tool calling
+
+## Working on right now
 - Agent brain for persistent context windows
+hooking up database to save chats, also to move to vector database like Pinecone to perform semantic search on prompted codebase, rather than injecting hundreds of lines
